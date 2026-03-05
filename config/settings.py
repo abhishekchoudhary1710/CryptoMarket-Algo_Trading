@@ -1,5 +1,5 @@
 """
-Centralised configuration for the XAUUSD trading system.
+Centralised configuration for the crypto trading system.
 
 All tuneable parameters live here.  Credentials are loaded from
 environment variables (or a .env file) so secrets never touch code.
@@ -8,45 +8,46 @@ environment variables (or a .env file) so secrets never touch code.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
-import MetaTrader5 as mt5
 from dotenv import load_dotenv
 
 load_dotenv()  # reads .env in project root (if present)
 
 
-# ── MT5 connection & credentials ────────────────────────────────────
+# ── Exchange connection & credentials ─────────────────────────────────
 @dataclass
-class MT5Config:
-    # Credentials — loaded from env vars for GCP / headless deploys
-    login: int = int(os.getenv("MT5_LOGIN", "0"))
-    password: str = os.getenv("MT5_PASSWORD", "")
-    server: str = os.getenv("MT5_SERVER", "")
-    path: str = os.getenv("MT5_PATH", "")  # e.g. "C:/Program Files/MetaTrader 5/terminal64.exe"
+class ExchangeConfig:
+    # Which ccxt exchange to use (e.g. "binance", "bybit", "okx")
+    exchange_id: str = os.getenv("EXCHANGE_ID", "bybit")
 
-    symbol: str = os.getenv("MT5_SYMBOL", "XAUUSD")
-    timeframe: int = int(os.getenv("MT5_TIMEFRAME", str(mt5.TIMEFRAME_M5)))
-    deviation: int = 20
-    loop_sleep_seconds: int = 2
+    api_key: str = os.getenv("EXCHANGE_API_KEY", "")
+    api_secret: str = os.getenv("EXCHANGE_API_SECRET", "")
+    password: str = os.getenv("EXCHANGE_PASSWORD", "")  # some exchanges need this
+
+    # Set True for testnet/sandbox
+    sandbox: bool = os.getenv("EXCHANGE_SANDBOX", "true").lower() == "true"
+
+    symbol: str = os.getenv("SYMBOL", "BTC/USDT")
+    timeframe: str = os.getenv("TIMEFRAME", "5m")
+    loop_sleep_seconds: int = int(os.getenv("LOOP_SLEEP_SECONDS", "2"))
 
 
-# ── Risk management ─────────────────────────────────────────────────
+# ── Risk management ───────────────────────────────────────────────────
 @dataclass
 class RiskConfig:
     risk_per_trade_pct: float = float(os.getenv("RISK_PER_TRADE_PCT", "0.5"))
     max_daily_loss_pct: float = float(os.getenv("MAX_DAILY_LOSS_PCT", "2.0"))
-    max_spread_points: float = float(os.getenv("MAX_SPREAD_POINTS", "120.0"))
+    max_spread_pct: float = float(os.getenv("MAX_SPREAD_PCT", "0.15"))
 
 
-# ── Swing structure strategy (H1-L1-A-B-C-D) ──────────────────────
+# ── Swing structure strategy (H1-L1-A-B-C-D) ────────────────────────
 @dataclass
 class SwingStructureConfig:
-    bars_to_load: int = 500
+    bars_to_load: int = int(os.getenv("BARS_TO_LOAD", "500"))
 
-    entry_buffer: float = 0.05
-    rr_ratio: float = 2.0
+    entry_buffer_pct: float = float(os.getenv("ENTRY_BUFFER_PCT", "0.01"))
+    rr_ratio: float = float(os.getenv("RR_RATIO", "2.0"))
 
-    magic: int = 260405
-    comment: str = "xau_swing_struct_v1"
+    magic: str = "swing_struct_v1"
+    comment: str = "swing_struct_v1"

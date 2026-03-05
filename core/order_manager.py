@@ -1,5 +1,5 @@
 """
-Order execution and position management via MT5.
+Order execution and position management via ccxt.
 """
 
 from __future__ import annotations
@@ -7,106 +7,85 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import MetaTrader5 as mt5
+import ccxt
 
-from config.settings import MT5Config
+from config.settings import ExchangeConfig
+from core.exchange_client import ExchangeClient
 
 log = logging.getLogger(__name__)
 
 
 class OrderManager:
-    def __init__(self, mt5_cfg: MT5Config, magic: int, comment: str) -> None:
-        self.symbol = mt5_cfg.symbol
-        self.deviation = mt5_cfg.deviation
-        self.magic = magic
+    def __init__(self, client: ExchangeClient, cfg: ExchangeConfig, comment: str) -> None:
+        self.client = client
+        self.exchange = client.exchange
+        self.symbol = cfg.symbol
         self.comment = comment
 
-    # ── position query ───────────────────────────────────────────────
-    def get_open_position(self):
-        positions = mt5.positions_get(symbol=self.symbol)
-        if not positions:
+    # ── position query ────────────────────────────────────────────────
+    def get_open_position(self) -> Optional[dict]:
+        try:
+            positions = self.exchange.fetch_positions([self.symbol])
+            for pos in positions:
+                amt = float(pos.get("contracts", 0) or 0)
+                if amt != 0:
+                    return pos
             return None
-        for pos in positions:
-            if pos.magic == self.magic:
-                return pos
-        return None
+        except ccxt.BaseError as e:
+            log.error("Failed to fetch positions: %s", e)
+            return None
 
-    # ── market order ─────────────────────────────────────────────────
+    # ── market order ──────────────────────────────────────────────────
     def send_market_order(
-        self, side: str, volume: float, sl: float, tp: float
+        self, side: str, amount: float, sl: float, tp: float
     ) -> bool:
-        tick = mt5.symbol_info_tick(self.symbol)
-        if tick is None:
-            return False
+        try:
+            params = {}
 
-        order_type = mt5.ORDER_TYPE_BUY if side == "buy" else mt5.ORDER_TYPE_SELL
-        price = tick.ask if side == "buy" else tick.bid
-        fill_modes = [
-            mt5.ORDER_FILLING_IOC,
-            mt5.ORDER_FILLING_FOK,
-            mt5.ORDER_FILLING_RETURN,
-        ]
+            # Set stop loss and take profit (exchange-specific params)
+            params["stopLoss"] = {"triggerPrice": sl}
+            params["takeProfit"] = {"triggerPrice": tp}
 
-        for fill in fill_modes:
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.symbol,
-                "volume": volume,
-                "type": order_type,
-                "price": price,
-                "sl": sl,
-                "tp": tp,
-                "deviation": self.deviation,
-                "magic": self.magic,
-                "comment": self.comment,
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": fill,
-            }
-            result = mt5.order_send(request)
-            if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                log.info(
-                    "Order filled | side=%s vol=%.2f price=%.3f sl=%.3f tp=%.3f deal=%s",
-                    side,
-                    volume,
-                    price,
-                    sl,
-                    tp,
-                    result.deal,
-                )
-                return True
-
-        log.error("Order FAILED | side=%s vol=%.2f", side, volume)
-        return False
-
-    # ── close position ───────────────────────────────────────────────
-    def close_position(self, position) -> bool:
-        tick = mt5.symbol_info_tick(self.symbol)
-        if tick is None:
-            return False
-
-        if position.type == mt5.POSITION_TYPE_BUY:
-            close_type = mt5.ORDER_TYPE_SELL
-            price = tick.bid
-        else:
-            close_type = mt5.ORDER_TYPE_BUY
-            price = tick.ask
-
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "position": position.ticket,
-            "symbol": self.symbol,
-            "volume": position.volume,
-            "type": close_type,
-            "price": price,
-            "deviation": self.deviation,
-            "magic": self.magic,
-            "comment": f"{self.comment}_close",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
-        result = mt5.order_send(request)
-        if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-            log.info("Closed position ticket=%s", position.ticket)
+            order = self.exchange.create_order(
+                symbol=self.symbol,
+                type="market",
+                side=side,
+                amount=amount,
+                params=params,
+            )
+            log.info(
+                "Order filled | side=%s amount=%.6f price=%s sl=%.2f tp=%.2f id=%s",
+                side,
+                amount,
+                order.get("average", order.get("price", "N/A")),
+                sl,
+                tp,
+                order.get("id", "N/A"),
+            )
             return True
-        log.error("Close FAILED ticket=%s", position.ticket)
-        return False
+        except ccxt.BaseError as e:
+            log.error("Order FAILED | side=%s amount=%.6f error=%s", side, amount, e)
+            return False
+
+    # ── close position ────────────────────────────────────────────────
+    def close_position(self, position: dict) -> bool:
+        try:
+            side = position.get("side", "")
+            contracts = abs(float(position.get("contracts", 0) or 0))
+            if contracts == 0:
+                return False
+
+            close_side = "sell" if side == "long" else "buy"
+
+            self.exchange.create_order(
+                symbol=self.symbol,
+                type="market",
+                side=close_side,
+                amount=contracts,
+                params={"reduceOnly": True},
+            )
+            log.info("Closed position side=%s contracts=%.6f", side, contracts)
+            return True
+        except ccxt.BaseError as e:
+            log.error("Close FAILED: %s", e)
+            return False

@@ -107,8 +107,8 @@ class _BullishState:
                 highest_idx = i
         self.D, self.D_idx = highest, highest_idx
 
-        entry = self.D + self.cfg.entry_buffer
-        sl = self.C - self.cfg.entry_buffer
+        entry = self.D * (1 + self.cfg.entry_buffer_pct / 100.0)
+        sl = self.C * (1 - self.cfg.entry_buffer_pct / 100.0)
         risk = entry - sl
         tp = entry + (risk * self.cfg.rr_ratio)
         self.pending_setup = {"entry": entry, "sl": sl, "tp": tp}
@@ -254,8 +254,8 @@ class _BearishState:
                 lowest_idx = i
         self.D, self.D_idx = lowest, lowest_idx
 
-        entry = self.D - self.cfg.entry_buffer
-        sl = self.C + self.cfg.entry_buffer
+        entry = self.D * (1 - self.cfg.entry_buffer_pct / 100.0)
+        sl = self.C * (1 + self.cfg.entry_buffer_pct / 100.0)
         risk = sl - entry
         tp = entry - (risk * self.cfg.rr_ratio)
         self.pending_setup = {"entry": entry, "sl": sl, "tp": tp}
