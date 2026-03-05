@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f strategy_bot.py custom_swing_bot.py bearish_swing.py bullish_swing.py)",
+      "Bash(rm -rf __pycache__)",
+      "Bash(pip install python-dotenv)"
+    ]
+  }
+}

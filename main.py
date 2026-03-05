@@ -1,0 +1,132 @@
+"""
+XAUUSD Swing-Structure Trading Bot
+───────────────────────────────────
+Entry point.  Connects to MT5/Exness, bootstraps the swing-structure
+strategy, and loops on each new closed bar.
+
+Usage:
+    python main.py
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+
+import MetaTrader5 as mt5
+
+from config.settings import MT5Config, RiskConfig, SwingStructureConfig
+from core.mt5_client import MT5Client
+from core.order_manager import OrderManager
+from core.risk_manager import RiskManager
+from strategies.swing_structure import SwingStructureStrategy
+from utils.logger import setup_logging
+
+log = logging.getLogger(__name__)
+
+
+def run() -> None:
+    # ── configuration ────────────────────────────────────────────────
+    mt5_cfg = MT5Config()
+    risk_cfg = RiskConfig()
+    strat_cfg = SwingStructureConfig()
+
+    # ── initialise components ────────────────────────────────────────
+    setup_logging()
+    client = MT5Client(mt5_cfg)
+    client.connect()
+
+    order_mgr = OrderManager(mt5_cfg, magic=strat_cfg.magic, comment=strat_cfg.comment)
+    risk_mgr = RiskManager(mt5_cfg, risk_cfg, magic=strat_cfg.magic)
+    strategy = SwingStructureStrategy(strat_cfg)
+
+    balance = client.account_balance()
+    if balance is None:
+        raise RuntimeError("Cannot read account balance after connection.")
+    log.info("Risk guard | max_daily_loss=%.2f", balance * (risk_cfg.max_daily_loss_pct / 100.0))
+
+    # ── main loop ────────────────────────────────────────────────────
+    try:
+        while True:
+            df = client.get_rates(strat_cfg.bars_to_load)
+            if df is None:
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            signal = strategy.next_signal(df)
+            if signal is None:
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            log.info(
+                "Signal | side=%s entry=%.3f sl=%.3f tp=%.3f reason=%s",
+                signal["side"],
+                signal["entry"],
+                signal["sl"],
+                signal["tp"],
+                signal["reason"],
+            )
+
+            # ── risk checks ──────────────────────────────────────────
+            balance = client.account_balance()
+            if balance is None:
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            if not risk_mgr.daily_loss_ok(balance):
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            # ── position management ──────────────────────────────────
+            position = order_mgr.get_open_position()
+            if position is not None:
+                if signal["side"] == "buy" and position.type == mt5.POSITION_TYPE_SELL:
+                    order_mgr.close_position(position)
+                elif signal["side"] == "sell" and position.type == mt5.POSITION_TYPE_BUY:
+                    order_mgr.close_position(position)
+                else:
+                    log.info("Same-side position already open. Skipping new entry.")
+                    time.sleep(mt5_cfg.loop_sleep_seconds)
+                    continue
+
+            if not risk_mgr.spread_ok():
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            # ── entry price validation ───────────────────────────────
+            tick = mt5.symbol_info_tick(mt5_cfg.symbol)
+            if tick is None:
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            market_entry = tick.ask if signal["side"] == "buy" else tick.bid
+            sl = signal["sl"]
+            tp = signal["tp"]
+
+            if signal["side"] == "buy" and not (sl < market_entry < tp):
+                log.warning("Invalid buy levels for market execution. Skipping.")
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+            if signal["side"] == "sell" and not (tp < market_entry < sl):
+                log.warning("Invalid sell levels for market execution. Skipping.")
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            # ── lot sizing & order ───────────────────────────────────
+            volume = risk_mgr.calc_volume(signal["side"], market_entry, sl, balance)
+            if volume is None:
+                log.error("Lot calculation failed.")
+                time.sleep(mt5_cfg.loop_sleep_seconds)
+                continue
+
+            order_mgr.send_market_order(signal["side"], volume, sl, tp)
+            time.sleep(mt5_cfg.loop_sleep_seconds)
+
+    except KeyboardInterrupt:
+        log.info("Stopped by user.")
+    finally:
+        client.shutdown()
+
+
+if __name__ == "__main__":
+    run()
