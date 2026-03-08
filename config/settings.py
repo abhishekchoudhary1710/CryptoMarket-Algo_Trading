@@ -31,6 +31,7 @@ class ExchangeConfig:
     symbol: str = os.getenv("SYMBOL", "BTC/USDT")
     timeframe: str = os.getenv("TIMEFRAME", "5m")
     loop_sleep_seconds: int = int(os.getenv("LOOP_SLEEP_SECONDS", "2"))
+    tick_log_interval_seconds: int = int(os.getenv("TICK_LOG_INTERVAL_SECONDS", "15"))
 
 
 # ── Risk management ───────────────────────────────────────────────────

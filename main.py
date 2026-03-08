@@ -42,10 +42,16 @@ def run() -> None:
     if balance is None:
         raise RuntimeError("Cannot read account balance after connection.")
     log.info("Risk guard | max_daily_loss=%.2f", balance * (risk_cfg.max_daily_loss_pct / 100.0))
+    if exchange_cfg.tick_log_interval_seconds > 0:
+        log.info("Live tick heartbeat enabled | interval=%ss", exchange_cfg.tick_log_interval_seconds)
+    else:
+        log.info("Live tick heartbeat disabled | set TICK_LOG_INTERVAL_SECONDS > 0 to enable")
 
     # ── main loop ─────────────────────────────────────────────────────
     try:
         while True:
+            client.log_live_tick_heartbeat()
+
             df = client.get_rates(strat_cfg.bars_to_load)
             if df is None:
                 time.sleep(exchange_cfg.loop_sleep_seconds)
