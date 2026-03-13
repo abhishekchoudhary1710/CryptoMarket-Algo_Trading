@@ -3,6 +3,8 @@
 Automated trading bot for XAUUSD on MT5/Exness using a custom swing-structure
 pattern recognition strategy (H1-L1-A-B-C-D breakout).
 
+This repository is configured for **XAUUSD-only trading** and does **not** include derivatives contract trading.
+
 ## Architecture
 
 ```
@@ -75,3 +77,37 @@ Edit `config/settings.py` to adjust:
 - **Use demo accounts** until you are confident the strategy is profitable.
 - Keep MT5 open while the bot is running.
 - This is a trading tool, not financial advice.
+
+## MCX Gold Live Ticks (Angel One)
+
+The project now includes an Angel One bridge and MCX GOLD futures token resolver:
+
+1. Set `ANGEL_*` credentials and `MCX_*` filters in `.env` (see `.env.example`).
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Run the live tick listener:
+
+```bash
+python main_mcx_gold_ticks.py
+```
+
+This resolves the nearest `GOLD` MCX futures token from ScripMaster and streams live ticks.
+
+## Dual Feed Candle Pipeline (XAUUSD + MCX)
+
+Run unified dual-feed ingestion and candle building on `1m,3m,5m,10m,15m`:
+
+```bash
+python main_dual_feed.py
+```
+
+This starts:
+- Primary feed: `XAUUSD` from OANDA pricing (`OANDA_ENV`, `OANDA_ACCOUNT_ID`, `OANDA_API_TOKEN`, `OANDA_INSTRUMENT`)
+- Secondary feed: MCX GOLD futures from Angel websocket
+- Unified candle engine for both feeds
+- Signal pipeline: divergence detection on `10m`, entry trigger on `3m`
+- Signal journaling at `logs/signal_journal.csv` (phase-1, no live order execution)

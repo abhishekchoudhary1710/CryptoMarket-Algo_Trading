@@ -1,4 +1,4 @@
-ccxt>=4.0,<4.5
-pandas>=2.0
-numpy>=1.24
-python-dotenv>=1.0
+# Full dependency set for this repository.
+# Install with: pip install -r requirements.txt
+-r requirements/base.txt
+-r requirements/angel_mcx.txt

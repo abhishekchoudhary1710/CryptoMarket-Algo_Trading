@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 
-from config.settings import ExchangeConfig, RiskConfig, SwingStructureConfig
+from config.settings import ExchangeConfig, RiskConfig, SwingStructureConfig, TRADE_SYMBOL_LOCK
 from core.exchange_client import ExchangeClient
 from core.order_manager import OrderManager
 from core.risk_manager import RiskManager
@@ -22,12 +22,20 @@ from utils.logger import setup_logging
 
 log = logging.getLogger(__name__)
 
+def _ensure_xauusd_symbol(symbol: str, lock: str) -> None:
+    normalized = "".join(ch for ch in symbol.upper() if ch.isalnum())
+    if lock.upper() not in normalized:
+        raise RuntimeError(
+            f"Trading is restricted to {lock}. Current SYMBOL='{symbol}' is not allowed."
+        )
+
 
 def run() -> None:
     # ── configuration ─────────────────────────────────────────────────
     exchange_cfg = ExchangeConfig()
     risk_cfg = RiskConfig()
     strat_cfg = SwingStructureConfig()
+    _ensure_xauusd_symbol(exchange_cfg.symbol, lock=TRADE_SYMBOL_LOCK)
 
     # ── initialise components ─────────────────────────────────────────
     setup_logging()
